@@ -47,7 +47,7 @@ src/satellite_enhance/
   infer_3d.py      run it + export a textured 3D terrain mesh/preview
   metrics.py       PSNR / SSIM / DEM RMSE / slope error
 scripts/
-  download_sample_data.py   fetch real Landsat/NAIP demo imagery (no auth needed)
+  download_sample_data.py   fetch real Landsat demo imagery (no auth needed)
   make_synthetic_dem.py     generate fractal terrain DEM tiles for 3D demo/testing
 tests/             unit + pipeline smoke tests (pytest)
 data/sample/       demo optical imagery (populated by download_sample_data.py)
@@ -71,7 +71,7 @@ NumPy, Pillow, OpenCV, scikit-image, SciPy, Matplotlib.
 ### 2D: optical image super-resolution
 
 ```bash
-# Get some real demo imagery (Landsat/NAIP test fixtures, no login required)
+# Get some real demo imagery (Landsat 7 scenes, no login required)
 python scripts/download_sample_data.py --out-dir data/sample
 
 # Train (CPU-friendly settings shown; scale up channels/blocks/epochs with a GPU)
@@ -83,7 +83,7 @@ python -m satellite_enhance.train_2d \
 # Enhance a new image (tiled automatically if larger than --tile-size)
 python -m satellite_enhance.infer_2d \
   --checkpoint checkpoints/rrdb_x4.pth \
-  --input data/sample/landsat_rgb_1.png --output outputs/landsat_rgb_1_x4.png
+  --input data/sample/landsat_rockies_truecolor.png --output outputs/landsat_rockies_x4.png
 ```
 
 ### 3D: DEM / terrain spatial enhancement
@@ -103,7 +103,7 @@ python -m satellite_enhance.train_3d \
 python -m satellite_enhance.infer_3d \
   --checkpoint checkpoints/dem_sr_x4.pth \
   --input-dem data/dem/terrain_00_z0-300m.png --z-min 0 --z-max 300 \
-  --texture outputs/landsat_rgb_1_x4.png \
+  --texture outputs/landsat_rockies_x4.png \
   --output-prefix outputs/terrain_00
 ```
 
@@ -124,11 +124,22 @@ Feed either result into `infer_3d.py` as the `--input-dem` to go from
 
 ## Datasets
 
-The bundled demo uses small **real** Landsat/NAIP raster fixtures pulled
-from open-source geospatial projects on GitHub (no auth needed — see
-`scripts/download_sample_data.py`) plus procedurally generated fractal
-terrain for the 3D demo (real DEM portals below need registration that
-isn't available in a sandboxed environment).
+The bundled demo uses two **real** Landsat 7 scenes pulled from open-source
+geospatial projects on GitHub (no auth needed — see
+`scripts/download_sample_data.py`): a true-color scene over the Rocky
+Mountains and a larger false-color (NIR-Red-Green) scene over the San
+Francisco Bay Area. (Several other "sample data" repos looked promising but
+turned out unusable on inspection — synthetic noise test fixtures, or a
+single-band raster mislabeled as RGB — see the comments in that script for
+what to avoid.) The 3D demo uses procedurally generated fractal terrain
+(real DEM portals below need registration that isn't available in a
+sandboxed environment).
+
+This is intentionally a *small, two-image* demo corpus — enough to prove
+the training/inference pipeline is correct end-to-end, not to produce
+production-quality color fidelity. With so little data the model mostly
+learns to add plausible high-frequency texture; don't expect polished
+results until you point it at hundreds+ of scenes (see below).
 
 For real training at scale, point `--data-dir` / `--dem-dir` at a larger
 corpus. Good open options:

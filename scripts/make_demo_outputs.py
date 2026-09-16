@@ -9,6 +9,7 @@ Usage:
 
 from __future__ import annotations
 
+import random
 import sys
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from PIL import Image
 
 from satellite_enhance.infer_2d import enhance_tiled, load_model as load_2d_model
 from satellite_enhance.infer_3d import enhance_dem, load_model as load_3d_model
+from satellite_enhance.utils.degradation import random_degrade
 from satellite_enhance.utils.image_io import load_dem, load_image
 from satellite_enhance.utils.terrain3d import render_3d_preview
 
@@ -29,14 +31,14 @@ def make_2d_demo(checkpoint: str, image_path: Path, out_dir: Path):
     model, scale = load_2d_model(checkpoint, device)
 
     hr_like = load_image(image_path)
-    # Downscale first to create a controlled "low-res input" for a fair
-    # before/after comparison, then enhance it back up.
+    # Degrade with the same blur/downsample/noise/JPEG pipeline used during
+    # training (utils/degradation.py) so the model sees in-distribution
+    # input -- feeding it a plain bicubic downsample it never saw the
+    # inverse of during training would understate/misrepresent quality.
     h, w = hr_like.shape[:2]
     h2, w2 = (h // scale) * scale, (w // scale) * scale
     hr_like = hr_like[:h2, :w2]
-    lr_img = np.asarray(
-        Image.fromarray((hr_like * 255).astype(np.uint8)).resize((w2 // scale, h2 // scale), Image.BICUBIC)
-    ).astype(np.float32) / 255.0
+    lr_img = random_degrade(hr_like, scale, rng=random.Random(0))
 
     enhanced = enhance_tiled(model, lr_img, scale, device, tile=256, overlap=16)
 

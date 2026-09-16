@@ -2,17 +2,35 @@
 smoke-test data for the 2D super-resolution pipeline, and convert it to
 standard 8-bit RGB PNGs under data/sample/.
 
-Sources are real Landsat/NAIP-derived test fixtures from well-known
-open-source geospatial Python projects (rasterio, rio-tiler, torchgeo),
-served with no authentication required via raw.githubusercontent.com. They
-are small enough to be practical demo/smoke-test assets while still being
-genuine satellite/aerial pixel data (not synthetic placeholders).
+Sources are real Landsat test/example rasters from well-known open-source
+geospatial Python projects, served with no authentication required via
+raw.githubusercontent.com:
+
+- rasterio's classic "RGB.byte.tif" test fixture: a true-color Landsat 7
+  scene over the Rocky Mountains.
+- leafmap/opengeos's "landsat7.tif" example raster: a larger false-color
+  (NIR-Red-Green) Landsat 7 scene over the San Francisco Bay Area.
+
+Both are genuine satellite pixel data, not synthetic placeholders -- which
+matters here because several *other* well-known test-fixture repos turned
+out to be unusable for this purpose on inspection: torchgeo's bundled
+NAIP/UCMerced/RESISC45 "test data" are randomly generated noise images (a
+common, legitimate practice for keeping ML test suites small, but not real
+imagery), and rio-tiler's "cog.tif" fixture is a single-band raster with
+multiple pyramid/overview levels rather than a 3-band RGB image -- treating
+it as RGB by taking the first 3 "bands" silently produces a washed-out
+near-grayscale image. Mixing either of those into training data measurably
+degrades color fidelity, so they are deliberately not included here.
+
+Note the two sources use different band-to-color mappings (true color vs.
+false color) -- both real, but not photometrically consistent with each
+other, same as different real-world satellite products often aren't.
 
 For real model training at scale, point --data-dir in train_2d.py at a much
-larger corpus instead -- see README.md "Datasets" for options (SpaceNet,
-Copernicus Sentinel-2, WorldStrat, AID / UC-Merced / NWPU-RESISC45, ISRO
-Bhuvan, USGS EarthExplorer) which require free registration/API keys that
-this sandboxed environment does not have.
+larger, consistent corpus instead -- see README.md "Datasets" for options
+(SpaceNet, Copernicus Sentinel-2, WorldStrat, AID / UC-Merced / NWPU-
+RESISC45, ISRO Bhuvan, USGS EarthExplorer) which require free registration/
+API keys that this sandboxed environment does not have.
 
 Usage:
     python scripts/download_sample_data.py --out-dir data/sample
@@ -27,28 +45,17 @@ import numpy as np
 import requests
 from PIL import Image
 
-# (filename, url, description) -- real Landsat/NAIP test fixtures used across
-# the open-source geospatial Python ecosystem.
+# (filename, url, description) -- real Landsat rasters, no auth required.
 SOURCE_RASTERS = [
     (
-        "landsat_rgb_1.tif",
+        "landsat_rockies_truecolor.tif",
         "https://raw.githubusercontent.com/rasterio/rasterio/main/tests/data/RGB.byte.tif",
-        "Landsat 7 scene (rasterio test fixture)",
+        "Landsat 7 true-color scene, Rocky Mountains (rasterio test fixture)",
     ),
     (
-        "landsat_rgb_2.tif",
-        "https://raw.githubusercontent.com/rasterio/rasterio/main/tests/data/RGB2.byte.tif",
-        "Landsat 7 scene, alternate band order (rasterio test fixture)",
-    ),
-    (
-        "sentinel_cog.tif",
-        "https://raw.githubusercontent.com/cogeotiff/rio-tiler/main/tests/fixtures/cog.tif",
-        "Multi-band 16-bit cloud-optimized GeoTIFF (rio-tiler test fixture)",
-    ),
-    (
-        "naip_aerial.tif",
-        "https://raw.githubusercontent.com/microsoft/torchgeo/main/tests/data/naip/m_3807511_ne_18_060_20181104.tif",
-        "NAIP aerial imagery tile (torchgeo test fixture)",
+        "landsat_sfbay_falsecolor.tif",
+        "https://raw.githubusercontent.com/opengeos/data/main/raster/landsat7.tif",
+        "Landsat 7 false-color (NIR-Red-Green) scene, San Francisco Bay Area (leafmap/opengeos example data)",
     ),
 ]
 
@@ -99,7 +106,7 @@ def main():
 
             png_path = out_dir / (raw_path.stem + ".png")
             if raster_to_rgb_png(raw_path, png_path):
-                print(f"OK   {name:20s} -> {png_path.name}   ({desc})")
+                print(f"OK   {name:32s} -> {png_path.name}   ({desc})")
                 ok += 1
             else:
                 print(f"skip {name}: converted image too small/unsuitable")
@@ -109,11 +116,11 @@ def main():
     if ok == 0:
         print(
             "No images could be downloaded (offline environment?). "
-            "Run scripts/make_synthetic_dataset.py instead, or supply your own "
+            "Run scripts/make_synthetic_dem.py instead, or supply your own "
             "images under data/sample/."
         )
     else:
-        print(f"\n{ok} real satellite/aerial images ready in {out_dir}/")
+        print(f"\n{ok} real satellite images ready in {out_dir}/")
 
 
 if __name__ == "__main__":
