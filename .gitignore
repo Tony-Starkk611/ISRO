@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+data/raw/
+data/processed/
+data/dem_previews/
+checkpoints/*.pth
+outputs/*
+!outputs/demo/
+!outputs/demo/*
+!checkpoints/.gitkeep
+.ipynb_checkpoints/
+*.egg-info/
+.pytest_cache/

@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "satellite-enhance"
+version = "0.1.0"
+description = "2D and 3D spatial enhancement (super-resolution) toolkit for satellite imagery"
+requires-python = ">=3.9"
+
+[tool.setuptools.packages.find]
+where = ["src"]

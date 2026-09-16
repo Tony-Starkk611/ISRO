@@ -1,0 +1,10 @@
+torch>=2.2
+numpy
+pillow
+opencv-python-headless
+scikit-image
+imageio
+matplotlib
+scipy
+tqdm
+requests
