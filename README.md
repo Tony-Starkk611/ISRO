@@ -20,6 +20,7 @@ standard in the super-resolution literature.
 | 3D reconstruction without a DEM | `models/stereo_depth.py` | Stereo SGBM disparity-to-depth, and single-image shape-from-shading (photoclinometry) |
 | Terrain visualization/export | `utils/terrain3d.py` | DEM → triangle mesh (`.obj`) with optical texture drape, matplotlib 3D preview render |
 | Metrics | `metrics.py` | PSNR, SSIM, DEM RMSE/MAE, slope error |
+| Interactive web UI | `webapp/` | FastAPI backend + browser frontend for both models (see "Web UI" below) |
 
 ## Why this design
 
@@ -121,6 +122,34 @@ raster), and `outputs/terrain_00.png` (quick-look 3D render).
 
 Feed either result into `infer_3d.py` as the `--input-dem` to go from
 "optical image only" to an enhanced 3D terrain reconstruction.
+
+## Web UI
+
+A browser UI wraps both models for interactive use — upload an image or DEM
+(or pick a bundled sample), click Enhance, and see/download the result. No
+command-line flags to remember.
+
+```bash
+pip install -e .   # picks up fastapi/uvicorn from requirements.txt
+uvicorn satellite_enhance.webapp.app:app --host 0.0.0.0 --port 8000
+```
+
+Open `http://localhost:8000`. Two tabs:
+
+- **2D Image** — drag & drop any low-resolution satellite/aerial image (or
+  pick a sample scene), click **Enhance ×4**. A draggable before/after
+  slider compares the model output against a plain bicubic upscale, with a
+  PNG download.
+- **3D Terrain** — pick a sample DEM tile (or upload your own 16-bit
+  grayscale DEM with a min/max elevation range), click **Enhance ×4**. A
+  slider spins synchronized "before" and "after" 3D renders through 8
+  viewing angles, with a `.obj` mesh download for opening in Blender/MeshLab.
+
+The web UI caps input size (320px longest side for images, 300×300 for DEM
+tiles) to keep inference interactive on CPU; for full-resolution batch
+processing use `infer_2d.py` / `infer_3d.py` from the command line instead.
+It reuses the same `checkpoints/rrdb_x4.pth` / `checkpoints/dem_sr_x4.pth`
+loaded by those scripts, loading each model once at startup.
 
 ## Datasets
 

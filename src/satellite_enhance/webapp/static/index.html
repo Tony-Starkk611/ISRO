@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Satellite Spatial Enhancement</title>
+<link rel="icon" type="image/png" href="/static/favicon.png" />
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-dot"></span>
+    <span>Satellite Spatial Enhancement</span>
+  </div>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="tab-2d">2D Image</button>
+    <button class="tab-btn" data-tab="tab-3d">3D Terrain</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ============================== 2D TAB ============================== -->
+  <section id="tab-2d" class="tab-panel active">
+    <div class="panel left-panel">
+      <h2>Input</h2>
+      <div id="dropzone-2d" class="dropzone">
+        <p>Drag &amp; drop an image, or click to choose a file</p>
+        <input type="file" id="file-2d" accept="image/png,image/jpeg,image/tiff" hidden />
+      </div>
+
+      <h3>...or pick a sample scene</h3>
+      <div id="samples-2d" class="sample-grid"></div>
+
+      <button id="btn-enhance-2d" class="primary-btn" disabled>Enhance ×4</button>
+      <p class="hint">Upload any low-resolution satellite/aerial image. The model runs
+      4x super-resolution and compares it against a plain bicubic upscale.</p>
+    </div>
+
+    <div class="panel right-panel">
+      <h2>Result</h2>
+      <div id="result-2d-empty" class="empty-state">Choose an image and click Enhance.</div>
+      <div id="result-2d" class="hidden">
+        <div class="compare-wrap">
+          <div class="compare" id="compare-2d">
+            <img id="img-enhanced" alt="Model-enhanced" />
+            <div class="compare-overlay" id="compare-overlay">
+              <img id="img-bicubic" alt="Bicubic upscale" />
+            </div>
+            <input type="range" id="compare-slider" min="0" max="100" value="50" />
+          </div>
+          <div class="compare-labels"><span>Bicubic</span><span>AI-Enhanced</span></div>
+        </div>
+        <div class="stats" id="stats-2d"></div>
+        <a id="download-2d" class="secondary-btn" download="enhanced.png">Download enhanced PNG</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 3D TAB ============================== -->
+  <section id="tab-3d" class="tab-panel">
+    <div class="panel left-panel">
+      <h2>Input DEM</h2>
+      <h3>Pick a sample terrain</h3>
+      <div id="samples-3d" class="sample-grid"></div>
+
+      <h3>...or upload your own</h3>
+      <div id="dropzone-3d" class="dropzone small">
+        <p>Drag &amp; drop a 16-bit grayscale DEM PNG/TIFF</p>
+        <input type="file" id="file-3d" accept="image/png,image/tiff" hidden />
+      </div>
+      <div id="zrange-inputs" class="zrange-inputs hidden">
+        <label>Min elevation (m) <input type="number" id="z-min" value="0" /></label>
+        <label>Max elevation (m) <input type="number" id="z-max" value="500" /></label>
+      </div>
+
+      <button id="btn-enhance-3d" class="primary-btn" disabled>Enhance ×4</button>
+      <p class="hint">DEM tiles are limited to 300×300px in this demo UI. For larger
+      real-world rasters, use <code>infer_3d.py</code> from the command line.</p>
+    </div>
+
+    <div class="panel right-panel">
+      <h2>Result</h2>
+      <div id="result-3d-empty" class="empty-state">Choose a terrain and click Enhance.</div>
+      <div id="result-3d" class="hidden">
+        <div class="spin-wrap">
+          <div class="spin-col">
+            <span class="spin-title">Before</span>
+            <img id="spin-before" class="spin-img" alt="Terrain before enhancement" />
+          </div>
+          <div class="spin-col">
+            <span class="spin-title">After (×4)</span>
+            <img id="spin-after" class="spin-img" alt="Terrain after enhancement" />
+          </div>
+        </div>
+        <input type="range" id="spin-slider" min="0" max="7" value="0" />
+        <p class="hint center">Drag the slider to rotate the view</p>
+        <div class="stats" id="stats-3d"></div>
+        <a id="download-3d" class="secondary-btn" download="enhanced_terrain.obj">Download 3D mesh (.obj)</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="loading-overlay" class="loading-overlay hidden">
+  <div class="spinner"></div>
+  <p id="loading-text">Enhancing...</p>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

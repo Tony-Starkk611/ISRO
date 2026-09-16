@@ -8,3 +8,6 @@ matplotlib
 scipy
 tqdm
 requests
+fastapi
+uvicorn[standard]
+python-multipart

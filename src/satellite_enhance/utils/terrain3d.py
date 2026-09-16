@@ -98,13 +98,29 @@ def render_3d_preview(
     elev: float = 45.0,
     azim: float = -60.0,
     title: str = "3D Terrain Reconstruction",
+    max_grid: int | None = None,
 ) -> None:
     """Render a static 3D surface plot (matplotlib) for quick visual QA,
-    optionally colored by a co-registered optical image."""
+    optionally colored by a co-registered optical image.
+
+    Args:
+        max_grid: if set, decimate the mesh so neither side exceeds this
+            many vertices before plotting. matplotlib's 3D surface renderer
+            scales poorly with vertex count (a full-resolution 500x500 grid
+            takes several seconds per frame); decimating to ~150-200 keeps
+            interactive multi-angle previews fast while barely changing the
+            rendered appearance at typical preview sizes.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    if max_grid is not None:
+        step = max(1, max(dem.shape) // max_grid)
+        dem = dem[::step, ::step]
+        if texture is not None and texture.shape[:2] == (dem.shape[0] * step, dem.shape[1] * step):
+            texture = texture[::step, ::step]
 
     h, w = dem.shape
     ys, xs = np.mgrid[0:h, 0:w]
