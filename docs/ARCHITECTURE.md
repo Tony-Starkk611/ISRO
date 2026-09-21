@@ -67,9 +67,46 @@ horizontal (from the 2D model) and vertical (from the 3D model) sense.
   bank used as a lightweight, dependency-free stand-in for a real VGG
   perceptual loss — this keeps the repo runnable fully offline. Swap in
   `torchvision.models.vgg19(pretrained=True)` features when pretrained
-  weights are reachable.
+  weights are reachable. **Default weight is now 0** (`--weight-perceptual
+  0`) — see "Diagnosed failure: hallucinated texture" below for why.
 - **AdversarialLoss**: standard non-saturating GAN loss, provided for an
   optional second fine-tuning stage (see README "Scaling up training").
+
+## Diagnosed failure: a checkpoint that was worse than bicubic upscaling
+
+A real, measured problem was found and fixed in this codebase (not
+hypothetical): with the original training setup, `train_2d.py` only ever
+saved the final epoch's weights, with no validation signal to indicate
+whether that epoch was any good. Measuring that checkpoint with
+`scripts/evaluate.py` on genuine held-out imagery showed it scoring *worse*
+than plain bicubic interpolation on both PSNR and SSIM. Visual inspection
+of the held-out output showed why: the model injected fine noise-like
+texture into naturally smooth regions (open water) that its 2-image
+training corpus barely contained any of, while not clearly improving
+genuinely texture-rich regions enough to compensate.
+
+Two contributing root causes were identified and fixed:
+
+1. **No model selection.** `train_2d.py` now performs a spatial train/val
+   split of each source image (`--val-fraction`, default 0.15 — the
+   dataset is too small to hold out entire files) and tracks per-epoch
+   validation PSNR/SSIM, saving the best-scoring epoch to a separate
+   checkpoint (`--best-checkpoint`) instead of trusting whatever the last
+   epoch happened to produce.
+2. **A loss term that rewarded texture hallucination.** The composite loss
+   included a small perceptual (edge-filter) term. Empirically, at this
+   tiny dataset size, it measurably pushed the model toward adding
+   high-frequency detail everywhere, including where the ground truth had
+   none — exactly the "hallucinated satellite detail" failure mode that
+   matters most to avoid in this domain. It now defaults to weight 0.
+
+A regression test (`tests/test_regression.py`) encodes this finding
+directly: it asserts a trained checkpoint must not score worse than
+bicubic (within a small tolerance) on a synthetic scene that deliberately
+mixes a smooth region with a textured one, and separately checks that the
+model doesn't inject drastically higher variance than the ground truth
+into the smooth region. The test was verified to actually fail against the
+old (pre-fix) checkpoint before being trusted as a real regression guard.
 
 ## Why synthetic degradation instead of requiring paired data
 

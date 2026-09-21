@@ -75,17 +75,49 @@ NumPy, Pillow, OpenCV, scikit-image, SciPy, Matplotlib.
 # Get some real demo imagery (Landsat 7 scenes, no login required)
 python scripts/download_sample_data.py --out-dir data/sample
 
-# Train (CPU-friendly settings shown; scale up channels/blocks/epochs with a GPU)
+# Train (CPU-friendly settings shown; scale up channels/blocks/epochs with a GPU).
+# A spatial train/val split (--val-fraction) is built in: each source image is
+# split by column into a train region and a held-out val region, and the
+# checkpoint with the best *validated* PSNR is saved separately from the
+# last epoch -- see "Model selection" below for why this matters.
 python -m satellite_enhance.train_2d \
-  --data-dir data/sample --scale 4 --patch-size 96 --patches-per-image 20 \
-  --batch-size 4 --epochs 15 --channels 64 --num-blocks 8 \
-  --checkpoint checkpoints/rrdb_x4.pth
+  --data-dir data/sample --scale 4 --patch-size 96 --patches-per-image 60 \
+  --val-fraction 0.15 --batch-size 4 --epochs 30 --channels 64 --num-blocks 8 \
+  --checkpoint checkpoints/rrdb_x4.pth --best-checkpoint checkpoints/rrdb_x4_best.pth
+
+# Promote the validated-best epoch to the canonical path infer_2d.py/the web UI load by default
+cp checkpoints/rrdb_x4_best.pth checkpoints/rrdb_x4.pth
 
 # Enhance a new image (tiled automatically if larger than --tile-size)
 python -m satellite_enhance.infer_2d \
   --checkpoint checkpoints/rrdb_x4.pth \
   --input data/sample/landsat_rockies_truecolor.png --output outputs/landsat_rockies_x4.png
 ```
+
+### Model selection: why "last epoch" isn't good enough
+
+An earlier version of this project just saved whatever the final training
+epoch produced and called it done. Measured on real held-out imagery (see
+"Evaluation" below), that checkpoint turned out to score **worse than
+plain bicubic upscaling** on PSNR/SSIM -- a real, measured regression, not
+a hypothetical one. Two contributing causes, found by actually inspecting
+training behavior rather than assuming the last epoch was the best one:
+
+1. **No validation signal at all** -- training only ever saved the final
+   epoch, so there was no way to know whether that epoch generalized or
+   had started overfitting the tiny (2-image) training corpus.
+2. **A loss term that rewarded hallucination** -- the composite loss
+   included a small weight on a hand-rolled "perceptual" edge-filter term.
+   On a genuinely held-out test image, it visibly pushed the model to
+   inject noise-like texture into naturally smooth regions (e.g. open
+   water) it had never been trained on, instead of leaving them smooth.
+
+`train_2d.py` now tracks validation PSNR/SSIM every epoch on a proper
+spatial train/val split and saves the best-scoring checkpoint separately
+(`--best-checkpoint`), and the perceptual-loss weight defaults to `0`
+(`--weight-perceptual`) after measuring that it hurt more than it helped
+at this dataset size. Always evaluate with `scripts/evaluate.py` (below)
+before trusting a new checkpoint.
 
 ### 3D: DEM / terrain spatial enhancement
 
@@ -151,18 +183,56 @@ processing use `infer_2d.py` / `infer_3d.py` from the command line instead.
 It reuses the same `checkpoints/rrdb_x4.pth` / `checkpoints/dem_sr_x4.pth`
 loaded by those scripts, loading each model once at startup.
 
+## Evaluation
+
+`scripts/evaluate.py` measures real PSNR/SSIM against genuine high-resolution
+ground truth (the standard SR-literature protocol: degrade a real HR image
+to synthesize its LR input, run the model, compare the output back to the
+original HR image -- never fabricated numbers). It reports two degradation
+modes (`matched`, the same pipeline training uses; `bicubic_only`, the
+classic academic benchmark protocol) and keeps `held_out` imagery (never
+seen during training) strictly separate from `in_sample` imagery, since an
+in-sample score is not evidence of generalization.
+
+```bash
+# Evaluate one checkpoint
+python scripts/evaluate.py --checkpoint checkpoints/rrdb_x4.pth
+
+# Compare checkpoints side by side (bicubic is always included as a row)
+python scripts/evaluate.py --compare \
+  "Previous=checkpoints/rrdb_x4_v1_baseline.pth" \
+  "Improved=checkpoints/rrdb_x4_best.pth"
+```
+
+See the root README's evaluation results (further down) for actual numbers
+measured this way, including a case where a checkpoint scored *worse* than
+plain bicubic upscaling -- the exact regression `tests/test_regression.py`
+now guards against.
+
 ## Datasets
 
-The bundled demo uses two **real** Landsat 7 scenes pulled from open-source
-geospatial projects on GitHub (no auth needed — see
-`scripts/download_sample_data.py`): a true-color scene over the Rocky
-Mountains and a larger false-color (NIR-Red-Green) scene over the San
-Francisco Bay Area. (Several other "sample data" repos looked promising but
-turned out unusable on inspection — synthetic noise test fixtures, or a
-single-band raster mislabeled as RGB — see the comments in that script for
-what to avoid.) The 3D demo uses procedurally generated fractal terrain
-(real DEM portals below need registration that isn't available in a
-sandboxed environment).
+The bundled 2D training demo uses three **real** rasters pulled from
+open-source geospatial projects on GitHub (no auth needed — see
+`scripts/download_sample_data.py`): a true-color Landsat 7 scene over the
+Rocky Mountains, a larger false-color (NIR-Red-Green) Landsat 7 scene over
+the San Francisco Bay Area, and a real single-band USGS aerial/terrain
+scene (roads, mountains, lakes, urban development) replicated to 3 channels
+for RGB training. A fourth real image (a global true-color satellite
+composite) is downloaded separately into `data/heldout/` and is **never**
+used for training -- only for measuring genuine generalization in
+`scripts/evaluate.py`.
+
+Several other "sample data" repos looked promising but turned out unusable
+on inspection: torchgeo's bundled NAIP/UCMerced/RESISC45 test fixtures are
+synthetic random noise (a legitimate way to keep an ML test suite small,
+but not real imagery), and a rio-tiler COG fixture is a single-band raster
+with pyramid overview levels that a naive "take the first 3 channels as
+RGB" conversion silently turns into a near-grayscale, wrong-looking image.
+Both are documented in `scripts/download_sample_data.py` as a heads-up for
+anyone tempted to reach for the same "obvious" sample-data sources.
+
+The 3D demo uses procedurally generated fractal terrain (real DEM portals
+below need registration that isn't available in a sandboxed environment).
 
 This is intentionally a *small, two-image* demo corpus — enough to prove
 the training/inference pipeline is correct end-to-end, not to produce
@@ -208,3 +278,32 @@ For production-quality results:
 ```bash
 python -m pytest tests/ -v
 ```
+
+`tests/test_regression.py` specifically guards against the "worse than
+bicubic" failure diagnosed and fixed in this project (see "Model
+selection" above) using a hermetic, procedurally generated test image --
+no network access or downloaded sample data required.
+
+## Known limitations
+
+- **No geospatial metadata is preserved end-to-end.** Training/inference
+  operate on plain RGB rasters; converting a GeoTIFF to a training PNG
+  (`scripts/download_sample_data.py`) discards CRS/transform/bounds. If you
+  need a georeferenced enhanced output, you'll need to re-attach the
+  original raster's metadata to the model's output yourself (e.g. with
+  `rasterio`) -- this repo does not do that for you, and does not claim to.
+- **The training corpus is still small** (3 real images + procedural
+  terrain for the 3D model). The fixes in this project (validation-based
+  model selection, a rebalanced loss) make the model *not worse than
+  bicubic* on the held-out test image measured so far, but a handful of
+  real images is not enough data for the kind of robust, general-purpose
+  quality gains a production system would need — see "Scaling up
+  training" above for what a larger run would look like.
+- **The perceptual/edge loss term defaults to off** after being identified
+  as a source of texture hallucination at this dataset size. It may behave
+  better with more/more-diverse training data; re-validate with
+  `scripts/evaluate.py` before re-enabling it rather than assuming.
+- **CPU-only in this environment** (no GPU was available for training or
+  evaluation here — see the hardware note in the engineering report). All
+  measured numbers in this README were produced on CPU; a GPU would mainly
+  change training speed, not correctness.

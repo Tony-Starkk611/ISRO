@@ -31,6 +31,8 @@ class SatelliteSRDataset(Dataset):
         augment: bool = True,
         seed: int | None = None,
         patches_per_image: int = 1,
+        split: str = "train",
+        val_fraction: float = 0.0,
     ):
         """
         Args:
@@ -39,19 +41,40 @@ class SatelliteSRDataset(Dataset):
                 image instead of exactly one -- source satellite scenes are
                 large relative to a training patch, so a handful of raw
                 files still yields many distinct training samples per epoch.
+            split: "train" or "val". With val_fraction > 0, each source
+                image is split spatially by column into a left "train"
+                region and a right "val" region, so validation measures
+                genuine held-out content instead of re-scoring pixels the
+                model was directly trained on -- important when the whole
+                training corpus is only a handful of source images, where
+                holding out entire files would leave too little to train on.
+            val_fraction: fraction of each image's width reserved for the
+                "val" split (0 disables splitting; the whole image is used
+                for both, matching the original single-split behavior).
         """
         self.image_dir = Path(image_dir)
         self.paths = sorted(p for p in self.image_dir.rglob("*") if p.suffix.lower() in IMAGE_EXTS)
         if not self.paths:
             raise FileNotFoundError(f"No images found under {image_dir}")
+        if split not in ("train", "val"):
+            raise ValueError("split must be 'train' or 'val'")
         self.scale = scale
         self.hr_patch_size = hr_patch_size
         self.augment = augment
         self.rng = random.Random(seed)
         self.patches_per_image = max(1, patches_per_image)
+        self.split = split
+        self.val_fraction = val_fraction
 
     def __len__(self) -> int:
         return len(self.paths) * self.patches_per_image
+
+    def _split_region(self, img: np.ndarray) -> np.ndarray:
+        if self.val_fraction <= 0:
+            return img
+        w = img.shape[1]
+        split_col = int(w * (1 - self.val_fraction))
+        return img[:, :split_col] if self.split == "train" else img[:, split_col:]
 
     def _random_crop(self, img: np.ndarray) -> np.ndarray:
         h, w = img.shape[:2]
@@ -75,6 +98,7 @@ class SatelliteSRDataset(Dataset):
 
     def __getitem__(self, idx: int):
         img = load_image(self.paths[idx % len(self.paths)])
+        img = self._split_region(img)
         hr_patch = self._random_crop(img)
         lr, hr = make_lr_hr_pair(hr_patch, self.scale, self.rng)
         if self.augment:

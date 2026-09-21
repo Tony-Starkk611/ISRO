@@ -47,6 +47,25 @@ def load_model(checkpoint_path: str, device: torch.device) -> tuple[RRDBNet, int
     return model, scale
 
 
+def _feather_window(size: int, ramp: int) -> np.ndarray:
+    """1D weight ramping linearly from ~0 to 1 over `ramp` pixels at each
+    end and staying at 1 in the middle. Used to blend overlapping tiles
+    smoothly instead of averaging them with equal weight everywhere --
+    flat averaging leaves a visible seam at the tile boundary because each
+    tile's own edge pixels are reconstructed with less spatial context
+    than its interior pixels, so neighboring tiles disagree slightly right
+    at the seam. Weighting the overlap zone down to ~0 at each tile's own
+    edge (and normalizing by the accumulated weight afterwards) makes the
+    output dominated by each tile's higher-context interior instead.
+    """
+    ramp = max(1, min(ramp, size // 2))
+    w = np.ones(size, dtype=np.float32)
+    taper = (np.arange(ramp, dtype=np.float32) + 1) / (ramp + 1)
+    w[:ramp] = taper
+    w[-ramp:] = taper[::-1]
+    return w
+
+
 @torch.no_grad()
 def enhance_tiled(model: RRDBNet, img: np.ndarray, scale: int, device, tile: int = 256, overlap: int = 16) -> np.ndarray:
     h, w, c = img.shape
@@ -60,6 +79,8 @@ def enhance_tiled(model: RRDBNet, img: np.ndarray, scale: int, device, tile: int
     weight = np.zeros((out_h, out_w, 1), dtype=np.float32)
 
     stride = tile - overlap
+    feather_px = max(1, overlap * scale // 2)
+
     for y in range(0, h, stride):
         for x0 in range(0, w, stride):
             y_end = min(y + tile, h)
@@ -73,8 +94,13 @@ def enhance_tiled(model: RRDBNet, img: np.ndarray, scale: int, device, tile: int
 
             oy, ox = y_start * scale, x_start * scale
             oh, ow = pred.shape[:2]
-            output[oy : oy + oh, ox : ox + ow] += pred
-            weight[oy : oy + oh, ox : ox + ow] += 1.0
+
+            wy = _feather_window(oh, feather_px)
+            wx = _feather_window(ow, feather_px)
+            tile_weight = (wy[:, None] * wx[None, :])[..., None]
+
+            output[oy : oy + oh, ox : ox + ow] += pred * tile_weight
+            weight[oy : oy + oh, ox : ox + ow] += tile_weight
 
             if x_end >= w:
                 break

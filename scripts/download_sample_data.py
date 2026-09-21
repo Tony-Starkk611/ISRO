@@ -57,6 +57,23 @@ SOURCE_RASTERS = [
         "https://raw.githubusercontent.com/opengeos/data/main/raster/landsat7.tif",
         "Landsat 7 false-color (NIR-Red-Green) scene, San Francisco Bay Area (leafmap/opengeos example data)",
     ),
+    (
+        "usgs_terrain_grayscale.tif",
+        "https://raw.githubusercontent.com/OSGeo/gdal/master/autotest/gdrivers/data/utm.tif",
+        "Real single-band (panchromatic-style) USGS aerial/satellite scene -- terrain, roads, urban "
+        "development, lakes (GDAL autotest fixture). Replicated to 3 identical channels for RGB training; "
+        "adds real spatial/textural diversity even without adding color diversity.",
+    ),
+]
+
+# Held out entirely from training -- used only by scripts/evaluate.py to
+# measure genuine generalization, never touched during model training.
+HELDOUT_RASTERS = [
+    (
+        "gdal_small_world.tif",
+        "https://raw.githubusercontent.com/OSGeo/gdal/master/autotest/gdrivers/data/small_world.tif",
+        "Real global true-color satellite composite (GDAL autotest fixture) -- held out as a test-only image",
+    ),
 ]
 
 
@@ -85,19 +102,9 @@ def raster_to_rgb_png(src_path: Path, dst_path: Path) -> bool:
     return True
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--out-dir", type=str, default="data/sample")
-    ap.add_argument("--raw-dir", type=str, default="data/raw")
-    args = ap.parse_args()
-
-    out_dir = Path(args.out_dir)
-    raw_dir = Path(args.raw_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    raw_dir.mkdir(parents=True, exist_ok=True)
-
+def _fetch_all(sources, raw_dir: Path, out_dir: Path) -> int:
     ok = 0
-    for name, url, desc in SOURCE_RASTERS:
+    for name, url, desc in sources:
         raw_path = raw_dir / name
         try:
             resp = requests.get(url, timeout=30, headers={"User-Agent": "satellite-enhance-demo/0.1"})
@@ -112,6 +119,27 @@ def main():
                 print(f"skip {name}: converted image too small/unsuitable")
         except Exception as exc:  # noqa: BLE001
             print(f"skip {name}: {exc}")
+    return ok
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out-dir", type=str, default="data/sample")
+    ap.add_argument("--raw-dir", type=str, default="data/raw")
+    ap.add_argument("--heldout-dir", type=str, default="data/heldout")
+    args = ap.parse_args()
+
+    out_dir = Path(args.out_dir)
+    raw_dir = Path(args.raw_dir)
+    heldout_dir = Path(args.heldout_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    heldout_dir.mkdir(parents=True, exist_ok=True)
+
+    print("--- training images ---")
+    ok = _fetch_all(SOURCE_RASTERS, raw_dir, out_dir)
+    print("\n--- held-out evaluation image (never used for training) ---")
+    ok_heldout = _fetch_all(HELDOUT_RASTERS, raw_dir, heldout_dir)
 
     if ok == 0:
         print(
@@ -120,7 +148,7 @@ def main():
             "images under data/sample/."
         )
     else:
-        print(f"\n{ok} real satellite images ready in {out_dir}/")
+        print(f"\n{ok} real training images ready in {out_dir}/, {ok_heldout} held-out image(s) in {heldout_dir}/")
 
 
 if __name__ == "__main__":

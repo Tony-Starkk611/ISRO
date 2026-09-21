@@ -10,7 +10,7 @@ def psnr(pred: np.ndarray, target: np.ndarray, data_range: float = 1.0) -> float
     mse = float(np.mean((pred.astype(np.float64) - target.astype(np.float64)) ** 2))
     if mse == 0:
         return float("inf")
-    return 10.0 * np.log10((data_range**2) / mse)
+    return float(10.0 * np.log10((data_range**2) / mse))
 
 
 def ssim(pred: np.ndarray, target: np.ndarray, data_range: float = 1.0) -> float:
