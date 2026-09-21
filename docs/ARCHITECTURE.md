@@ -85,7 +85,9 @@ texture into naturally smooth regions (open water) that its 2-image
 training corpus barely contained any of, while not clearly improving
 genuinely texture-rich regions enough to compensate.
 
-Two contributing root causes were identified and fixed:
+Three contributing root causes were identified and fixed, in the order
+they were actually found -- the first two were necessary but, measured
+honestly, turned out *not sufficient* on their own:
 
 1. **No model selection.** `train_2d.py` now performs a spatial train/val
    split of each source image (`--val-fraction`, default 0.15 — the
@@ -99,6 +101,27 @@ Two contributing root causes were identified and fixed:
    high-frequency detail everywhere, including where the ground truth had
    none — exactly the "hallucinated satellite detail" failure mode that
    matters most to avoid in this domain. It now defaults to weight 0.
+3. **The decisive fix: `RRDBNet` had no bicubic floor.** After (1) and
+   (2), re-measuring with `scripts/evaluate.py` on genuinely held-out
+   imagery *still* showed the model failing to beat bicubic — a real
+   result that was reported rather than assumed away. The remaining cause
+   was architectural: `DEMSRNet` (the 3D model, see above) was already
+   designed with a bicubic-upsampled skip connection specifically so it
+   only has to learn a residual correction and can't stray far from a safe
+   baseline; `RRDBNet` had no such floor, so on unfamiliar input it had no
+   mechanism pulling it back toward "at least as good as bicubic." Adding
+   the same skip connection to `RRDBNet` was the change that actually
+   closed the gap — see `models/rrdbnet.py`'s `forward()`. A much smaller
+   model (channels=32, num_blocks=4, ~1.75M params) with the skip
+   connection reached in *one epoch* the validation PSNR the old
+   architecture needed 25+ epochs to reach, and its held-out evaluation
+   numbers are non-negative across the board for the first time in this
+   project's history (see README "Evaluation").
+
+This is a useful lesson in its own right: two real, defensible fixes
+(proper validation, a rebalanced loss) were not enough by themselves, and
+the only way to know that was to keep measuring on genuinely held-out data
+after each change instead of stopping once training looked healthy.
 
 A regression test (`tests/test_regression.py`) encodes this finding
 directly: it asserts a trained checkpoint must not score worse than

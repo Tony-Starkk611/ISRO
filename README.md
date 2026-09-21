@@ -75,14 +75,22 @@ NumPy, Pillow, OpenCV, scikit-image, SciPy, Matplotlib.
 # Get some real demo imagery (Landsat 7 scenes, no login required)
 python scripts/download_sample_data.py --out-dir data/sample
 
-# Train (CPU-friendly settings shown; scale up channels/blocks/epochs with a GPU).
+# Train (CPU-friendly settings shown; scale up epochs with a GPU).
 # A spatial train/val split (--val-fraction) is built in: each source image is
 # split by column into a train region and a held-out val region, and the
 # checkpoint with the best *validated* PSNR is saved separately from the
 # last epoch -- see "Model selection" below for why this matters.
+#
+# channels=32/num-blocks=4 (not the usual ESRGAN-scale 64/16-23) is
+# deliberate, not a shortcut: at this project's current ~3-image training
+# corpus, a much smaller model measurably generalized better to held-out
+# imagery than the larger 64/8 config first tried -- a bigger network has
+# more capacity to memorize the training images' specific statistics
+# instead of learning something that transfers. Revisit this once the
+# training corpus is meaningfully larger (see "Scaling up training").
 python -m satellite_enhance.train_2d \
   --data-dir data/sample --scale 4 --patch-size 96 --patches-per-image 60 \
-  --val-fraction 0.15 --batch-size 4 --epochs 30 --channels 64 --num-blocks 8 \
+  --val-fraction 0.15 --batch-size 4 --epochs 30 --channels 32 --num-blocks 4 \
   --checkpoint checkpoints/rrdb_x4.pth --best-checkpoint checkpoints/rrdb_x4_best.pth
 
 # Promote the validated-best epoch to the canonical path infer_2d.py/the web UI load by default
@@ -94,30 +102,42 @@ python -m satellite_enhance.infer_2d \
   --input data/sample/landsat_rockies_truecolor.png --output outputs/landsat_rockies_x4.png
 ```
 
-### Model selection: why "last epoch" isn't good enough
+### Why an earlier checkpoint here scored worse than bicubic upscaling
 
 An earlier version of this project just saved whatever the final training
 epoch produced and called it done. Measured on real held-out imagery (see
-"Evaluation" below), that checkpoint turned out to score **worse than
-plain bicubic upscaling** on PSNR/SSIM -- a real, measured regression, not
-a hypothetical one. Two contributing causes, found by actually inspecting
-training behavior rather than assuming the last epoch was the best one:
+"Evaluation" below), that checkpoint scored **worse than plain bicubic
+upscaling** on PSNR/SSIM -- a real, measured regression, not a
+hypothetical one. Three contributing causes were found and fixed, in the
+order they were actually diagnosed:
 
 1. **No validation signal at all** -- training only ever saved the final
    epoch, so there was no way to know whether that epoch generalized or
-   had started overfitting the tiny (2-image) training corpus.
+   had started overfitting the tiny (2-3 image) training corpus.
+   `train_2d.py` now performs a spatial train/val split per source image
+   (`--val-fraction`) and saves the best-scoring epoch separately
+   (`--best-checkpoint`).
 2. **A loss term that rewarded hallucination** -- the composite loss
-   included a small weight on a hand-rolled "perceptual" edge-filter term.
-   On a genuinely held-out test image, it visibly pushed the model to
-   inject noise-like texture into naturally smooth regions (e.g. open
-   water) it had never been trained on, instead of leaving them smooth.
+   included a small weight on a hand-rolled "perceptual" edge-filter term
+   that, on genuinely held-out imagery, visibly pushed the model to inject
+   noise-like texture into naturally smooth regions (open water) it had
+   never trained on. Now defaults to weight `0` (`--weight-perceptual`).
+3. **The decisive fix: `RRDBNet` had no floor forcing it back toward
+   bicubic-like behavior on unfamiliar input.** Fixing (1) and (2) alone
+   *still* didn't beat bicubic on truly held-out imagery -- an honest
+   result that was measured, not assumed away. `DEMSRNet` (the 3D model)
+   already used a bicubic-upsampled skip connection so it only has to
+   learn a residual correction; `RRDBNet` didn't. Adding the same skip
+   connection was the change that actually closed the gap: a much smaller
+   model (channels=32, num_blocks=4) with the skip connection reached in
+   one epoch the validation PSNR the old architecture took 25+ epochs to
+   reach, and the resulting checkpoint measurably beats bicubic on
+   genuinely held-out imagery (see "Evaluation" below for the numbers).
 
-`train_2d.py` now tracks validation PSNR/SSIM every epoch on a proper
-spatial train/val split and saves the best-scoring checkpoint separately
-(`--best-checkpoint`), and the perceptual-loss weight defaults to `0`
-(`--weight-perceptual`) after measuring that it hurt more than it helped
-at this dataset size. Always evaluate with `scripts/evaluate.py` (below)
-before trusting a new checkpoint.
+Always evaluate with `scripts/evaluate.py` (below) before trusting a new
+checkpoint -- "it trains without errors" and "it improves the loss curve"
+are both necessary and *nowhere near* sufficient evidence that a change
+actually helped.
 
 ### 3D: DEM / terrain spatial enhancement
 
@@ -198,16 +218,57 @@ in-sample score is not evidence of generalization.
 # Evaluate one checkpoint
 python scripts/evaluate.py --checkpoint checkpoints/rrdb_x4.pth
 
-# Compare checkpoints side by side (bicubic is always included as a row)
+# Compare checkpoints side by side (bicubic is always included as a row) --
+# only meaningful for checkpoints trained with the same model code version;
+# see the warning below.
 python scripts/evaluate.py --compare \
-  "Previous=checkpoints/rrdb_x4_v1_baseline.pth" \
-  "Improved=checkpoints/rrdb_x4_best.pth"
+  "A=checkpoints/rrdb_x4.pth" "B=checkpoints/some_other_run.pth"
 ```
 
-See the root README's evaluation results (further down) for actual numbers
-measured this way, including a case where a checkpoint scored *worse* than
-plain bicubic upscaling -- the exact regression `tests/test_regression.py`
-now guards against.
+> **Checkpoints are tied to the `RRDBNet`/`DEMSRNet` class definition at
+> the time they were trained.** If you change the architecture (e.g. add
+> or remove a skip connection) and then load an older checkpoint through
+> the new code, the shapes will match and it will load without error --
+> but the output will be silently wrong, because the old weights were
+> never trained for what the new `forward()` does with them. There is no
+> version check for this today; when comparing checkpoints across an
+> architecture change, keep old checkpoints paired with the code version
+> that trained them (e.g. a separate git worktree/commit) rather than
+> loading them through `--compare` against a changed model class.
+
+Current measured results (held-out imagery = two real scenes never used in
+training; in-sample = crops from the training images themselves, reported
+separately since an in-sample score is not evidence of generalization):
+
+```text
+Held-out, "matched" degradation (same pipeline training uses):
+                    PSNR      SSIM
+Bicubic            20.19     0.503
+This model         20.27     0.519    (+0.07 dB)
+
+Held-out, "bicubic_only" degradation (classic academic protocol):
+                    PSNR      SSIM
+Bicubic            21.70     0.661
+This model         21.94     0.682    (+0.24 dB)
+
+In-sample, "matched" degradation:
+                    PSNR      SSIM
+Bicubic            22.54     0.516
+This model         22.87     0.539    (+0.33 dB)
+
+In-sample, "bicubic_only" degradation:
+                    PSNR      SSIM
+Bicubic            24.33     0.671
+This model         24.63     0.701    (+0.30 dB)
+```
+
+Every row is now non-negative -- a real change from an earlier checkpoint
+in this project's history, which scored *worse* than bicubic on every one
+of these rows (the exact regression `tests/test_regression.py` now guards
+against). Held-out gains are modest and should be read as "not worse than,
+and slightly better than, doing nothing" rather than a dramatic quality
+leap -- an honest characterization given the small (3-image) training
+corpus; see "Known limitations" below.
 
 ## Datasets
 
