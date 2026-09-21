@@ -7,6 +7,21 @@ name = "satellite-enhance"
 version = "0.1.0"
 description = "2D and 3D spatial enhancement (super-resolution) toolkit for satellite imagery"
 requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.2",
+    "numpy",
+    "pillow",
+    "opencv-python-headless",
+    "scikit-image",
+    "imageio",
+    "matplotlib",
+    "scipy",
+    "tqdm",
+    "requests",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
