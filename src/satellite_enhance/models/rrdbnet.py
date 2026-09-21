@@ -104,13 +104,27 @@ class RRDBNet(nn.Module):
         self.act_hr = nn.LeakyReLU(0.2, inplace=True)
         self.conv_last = nn.Conv2d(channels, out_channels, 3, 1, 1)
 
+        # Bicubic-upsampled skip connection: the network only has to learn a
+        # residual correction on top of a safe, smooth baseline, the same
+        # design used by DEMSRNet (models/dem_srnet.py). Without this, a
+        # network trained on a small/narrow corpus has no floor forcing it
+        # back toward "at least as good as bicubic" on out-of-distribution
+        # input -- measured evidence (scripts/evaluate.py on genuinely
+        # held-out imagery) showed the un-skipped version actively making
+        # images worse than plain bicubic upscaling instead of leaving
+        # unfamiliar content alone.
+        self.baseline_upsample = (
+            nn.Upsample(scale_factor=scale, mode="bicubic", align_corners=False) if scale > 1 else nn.Identity()
+        )
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        baseline = self.baseline_upsample(x)
         feat = self.conv_first(x)
         trunk_out = self.conv_trunk(self.trunk(feat))
         feat = feat + trunk_out
         feat = self.upsample(feat)
-        out = self.conv_last(self.act_hr(self.conv_hr(feat)))
-        return out
+        residual = self.conv_last(self.act_hr(self.conv_hr(feat)))
+        return baseline + residual
 
     @torch.no_grad()
     def count_parameters(self) -> int:

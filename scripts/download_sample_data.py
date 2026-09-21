@@ -72,7 +72,16 @@ HELDOUT_RASTERS = [
     (
         "gdal_small_world.tif",
         "https://raw.githubusercontent.com/OSGeo/gdal/master/autotest/gdrivers/data/small_world.tif",
-        "Real global true-color satellite composite (GDAL autotest fixture) -- held out as a test-only image",
+        "Real global true-color satellite composite (GDAL autotest fixture) -- held out as a test-only image. "
+        "Note: this is a whole-Earth basemap (hundreds of km/pixel), a much coarser spatial scale than the "
+        "~30m/pixel regional Landsat scenes used for training -- a real domain-scale mismatch worth knowing "
+        "about when interpreting its scores.",
+    ),
+    (
+        "gdal_rgbsmall.tif",
+        "https://raw.githubusercontent.com/OSGeo/gdal/master/autotest/gcore/data/rgbsmall.tif",
+        "Real small regional coastal aerial/satellite scene, 50x50px (GDAL autotest fixture) -- a much better "
+        "domain match to the training imagery's spatial scale than the global composite above.",
     ),
 ]
 

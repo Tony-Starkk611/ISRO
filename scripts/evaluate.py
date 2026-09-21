@@ -62,6 +62,7 @@ class TestImage:
 
 TEST_IMAGES = [
     TestImage(REPO_ROOT / "data/heldout/gdal_small_world.png", "held_out", "gdal_small_world"),
+    TestImage(REPO_ROOT / "data/heldout/gdal_rgbsmall.png", "held_out", "gdal_rgbsmall"),
     TestImage(REPO_ROOT / "data/sample/landsat_rockies_truecolor.png", "in_sample", "landsat_rockies"),
     TestImage(REPO_ROOT / "data/sample/landsat_sfbay_falsecolor.png", "in_sample", "landsat_sfbay"),
 ]
