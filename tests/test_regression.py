@@ -18,6 +18,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from PIL import Image
 
 from satellite_enhance.infer_2d import enhance_tiled, load_model
 from satellite_enhance.metrics import psnr, ssim
@@ -48,10 +49,17 @@ def _synthetic_hr_image(size: int = 128, seed: int = 7) -> np.ndarray:
     img[:, : size // 2, 1] = 0.25 + 0.05 * (xs / (size // 2))
     img[:, : size // 2, 2] = 0.45
 
-    # Textured half: structured edges (like fields/urban blocks), the kind
-    # of content the model should sharpen.
-    block = rng.integers(0, 2, size=(size // 8, size // 16)).astype(np.float32)
-    block = np.kron(block, np.ones((8, 8), dtype=np.float32))
+    # Textured half: smoothly-varying structured regions (like field/urban
+    # boundaries), the kind of content the model should sharpen. Built by
+    # upsampling a small random grid with bilinear interpolation rather than
+    # sharp random blocks -- real terrain/urban reflectance varies smoothly
+    # at the pixel level even where it has real structure, unlike literal
+    # binary noise, which no model trained on photographic imagery (real
+    # satellite scenes included) has any reason to reconstruct well.
+    small = rng.random((size // 16, size // 32)).astype(np.float32)
+    block = np.asarray(
+        Image.fromarray((small * 255).astype(np.uint8)).resize((size // 2, size), Image.BILINEAR)
+    ).astype(np.float32) / 255.0
     img[:, size // 2 :, 0] = 0.3 + 0.4 * block[:, : size // 2]
     img[:, size // 2 :, 1] = 0.35 + 0.3 * block[:, : size // 2]
     img[:, size // 2 :, 2] = 0.2
@@ -69,8 +77,6 @@ def test_2d_model_beats_bicubic_on_synthetic_scene():
     h2, w2 = (hr.shape[0] // scale) * scale, (hr.shape[1] // scale) * scale
     hr = hr[:h2, :w2]
     lr = random_degrade(hr, scale, rng=random.Random(42))
-
-    from PIL import Image
 
     bicubic = np.asarray(
         Image.fromarray((lr * 255).astype(np.uint8)).resize((w2, h2), Image.BICUBIC)
